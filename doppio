@@ -1,0 +1,241 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+package Doppio;
+
+use Fcntl qw(:DEFAULT :flock :mode);
+use File::Path qw(make_path);
+use File::Temp qw(tempfile);
+use JSON::PP qw(encode_json decode_json);
+use POSIX qw(WNOHANG);
+use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC sleep);
+
+our $CAFFEINATE = '/usr/bin/caffeinate';
+
+sub usage {
+    return <<'USAGE';
+Usage: dop [-d|--display] DURATION
+       dop status
+       dop --help
+
+Keep macOS awake against idle system sleep, with a live countdown.
+Durations: 30m, 90m, 1h, 1h30m (positive whole hours/minutes).
+  -d, --display  Also prevent idle display sleep.
+Ctrl-C stops the session. Only one session per user may run at a time.
+USAGE
+}
+
+sub parse_duration {
+    my ($text) = @_;
+    die "Invalid duration; use 30m, 1h, or 1h30m.\n"
+        unless defined($text) && $text =~ /\A(?:([0-9]+)h)?(?:([0-9]+)m)?\z/;
+    my ($hours, $minutes) = ($1 || '0', $2 || '0');
+    s/\A0+(?=[0-9])// for ($hours, $minutes);
+    die "Duration must be positive and at most 2147483647 seconds.\n"
+        if length($hours) > 10 || length($minutes) > 10;
+    my $seconds = $hours * 3600 + $minutes * 60;
+    die "Duration must be positive and at most 2147483647 seconds.\n"
+        unless $seconds > 0 && $seconds <= 2147483647;
+    return $seconds;
+}
+
+sub format_duration {
+    my ($seconds) = @_;
+    $seconds = int($seconds);
+    return sprintf '%02d:%02d:%02d',
+        int($seconds / 3600), int($seconds / 60) % 60, $seconds % 60;
+}
+
+sub remaining {
+    my ($deadline) = @_;
+    my $left = $deadline - clock_gettime(CLOCK_MONOTONIC);
+    return $left > 0 ? int($left) + ($left > int($left) ? 1 : 0) : 0;
+}
+
+sub state_directory {
+    die "HOME must be an absolute directory.\n"
+        unless defined($ENV{HOME}) && $ENV{HOME} =~ m{\A/} && -d $ENV{HOME};
+    my $dir = "$ENV{HOME}/Library/Application Support/doppio";
+    make_path($dir, { mode => 0700 }) unless -e $dir || -l $dir;
+    my @st = lstat($dir);
+    die "Unsafe state directory: $dir (must be owned by you with mode 0700).\n"
+        unless @st && S_ISDIR($st[2]) && $st[4] == $< && ($st[2] & 0777) == 0700;
+    return $dir;
+}
+
+sub open_private {
+    my ($path, $flags) = @_;
+    sysopen(my $fh, $path, $flags | O_NOFOLLOW | O_NONBLOCK, 0600)
+        or die "Cannot open $path: $!\n";
+    my @st = stat($fh);
+    die "Unsafe state file: $path (must be a private regular file owned by you).\n"
+        unless @st && S_ISREG($st[2]) && $st[4] == $<
+            && ($st[2] & 0077) == 0 && $st[3] == 1;
+    return $fh;
+}
+
+sub write_state {
+    my ($dir, $state) = @_;
+    my ($fh, $path) = tempfile('session-XXXXXXXX', DIR => $dir, UNLINK => 0);
+    my $ok = eval {
+        print {$fh} encode_json($state) or die "Cannot write session state: $!\n";
+        close($fh) or die "Cannot close session state: $!\n";
+        rename($path, "$dir/session.json") or die "Cannot publish session state: $!\n";
+        1;
+    };
+    my $error = $@;
+    if (!$ok) {
+        unlink($path) or warn "Cannot remove temporary state $path: $!\n";
+        die $error;
+    }
+}
+
+sub status {
+    my ($dir, $lock) = @_;
+    if (flock($lock, LOCK_SH | LOCK_NB)) {
+        print "No active doppio session.\n";
+        return 0;
+    }
+    die "Cannot inspect session lock: $!\n" unless $!{EWOULDBLOCK} || $!{EAGAIN};
+    if (!-e "$dir/session.json" && !-l "$dir/session.json") {
+        print "Doppio session is starting or stopping; try status again.\n";
+        return 0;
+    }
+    my $fh = open_private("$dir/session.json", O_RDONLY);
+    local $/;
+    my $json = <$fh>;
+    close($fh) or die "Cannot close session state: $!\n";
+    my $state = eval { decode_json($json) };
+    die "Invalid session state.\n"
+        unless ref($state) eq 'HASH'
+            && defined($state->{deadline})
+            && $state->{deadline} =~ /\A[0-9]+(?:\.[0-9]+)?\z/
+            && defined($state->{display}) && $state->{display} =~ /\A[01]\z/;
+    my $mode = $state->{display} ? 'system + display' : 'system; display may sleep';
+    print 'Doppio: ', format_duration(remaining($state->{deadline})),
+        " remaining ($mode).\n";
+    return 0;
+}
+
+sub stop_child {
+    my ($pid) = @_;
+    # An unreaped child cannot have its PID reused by an unrelated process.
+    my $result = waitpid($pid, WNOHANG);
+    return if $result == $pid;
+    die "Cannot monitor caffeinate during cleanup: $!\n" if $result == -1;
+    kill 'TERM', $pid or die "Cannot stop caffeinate: $!\n";
+    my $until = clock_gettime(CLOCK_MONOTONIC) + 2;
+    while (clock_gettime(CLOCK_MONOTONIC) < $until) {
+        my $reaped = waitpid($pid, WNOHANG);
+        return if $reaped == $pid;
+        die "Cannot reap caffeinate: $!\n" if $reaped == -1;
+        sleep 0.02;
+    }
+    kill 'KILL', $pid or die "Cannot kill caffeinate: $!\n";
+    waitpid($pid, 0) == $pid or die "Cannot reap caffeinate: $!\n";
+}
+
+sub run_session {
+    my ($dir, $lock, $seconds, $display) = @_;
+    unless (flock($lock, LOCK_EX | LOCK_NB)) {
+        die "A doppio session is already running; use 'dop status'.\n"
+            if $!{EWOULDBLOCK} || $!{EAGAIN};
+        die "Cannot acquire session lock: $!\n";
+    }
+    if (-e "$dir/session.json" || -l "$dir/session.json") {
+        unlink("$dir/session.json") or die "Cannot remove stale session state: $!\n";
+    }
+    my $signal = 0;
+    local $SIG{INT} = sub { $signal = 2 };
+    local $SIG{TERM} = sub { $signal = 15 };
+    local $SIG{HUP} = sub { $signal = 1 };
+    my $pid;
+    my $published = 0;
+    my $tty = -t STDOUT;
+    my $parent_pid = $$;
+    my $deadline = clock_gettime(CLOCK_MONOTONIC) + $seconds;
+    my $ok = eval {
+        $pid = fork();
+        die "Cannot start caffeinate: $!\n" unless defined $pid;
+        if ($pid == 0) {
+            $SIG{INT} = $SIG{TERM} = $SIG{HUP} = 'DEFAULT';
+            my @args = ('-i', ($display ? ('-d') : ()), '-t', $seconds, '-w', $parent_pid);
+            exec {$CAFFEINATE} $CAFFEINATE, @args or do {
+                print STDERR "Cannot execute caffeinate: $!\n";
+                POSIX::_exit(127);
+            };
+        }
+        write_state($dir, { deadline => $deadline, display => $display ? 1 : 0 });
+        $published = 1;
+        my $last = -1;
+        print "Doppio started (", ($display ? 'system + display' : 'system; display may sleep'),
+            "). Ctrl-C to stop.\n";
+        while (!$signal) {
+            my $left = remaining($deadline);
+            last if !$left;
+            my $result = waitpid($pid, WNOHANG);
+            if ($result == $pid) {
+                my $code = $?;
+                undef $pid;
+                die "caffeinate exited before the countdown finished (status $code).\n";
+            }
+            die "Cannot monitor caffeinate: $!\n" if $result == -1;
+            if ($left != $last) {
+                print(($tty ? "\r" : ''), 'Remaining: ', format_duration($left),
+                    ($tty ? '' : "\n"));
+                $last = $left;
+            }
+            sleep 0.1;
+        }
+        1;
+    };
+    my $error = $@;
+    if (defined $pid) {
+        eval { stop_child($pid); 1 } or $error .= $@;
+    }
+    if ($published) {
+        unlink("$dir/session.json") or $error .= "Cannot remove session state: $!\n";
+    }
+    print "\n" if $tty;
+    die $error if length $error;
+    die "Session failed.\n" unless $ok;
+    print $signal ? "Doppio stopped.\n" : "Doppio finished.\n";
+    return $signal ? 128 + $signal : 0;
+}
+
+sub main {
+    my (@args) = @_;
+    local $| = 1;
+    if (@args == 1 && ($args[0] eq '--help' || $args[0] eq '-h')) {
+        print usage();
+        return 0;
+    }
+    my $code = eval {
+        die usage() unless @args;
+        my $is_status = @args == 1 && $args[0] eq 'status';
+        my $display = 0;
+        if (@args && ($args[0] eq '-d' || $args[0] eq '--display')) {
+            $display = 1;
+            shift @args;
+        }
+        die usage() unless $is_status || @args == 1;
+        my $seconds = $is_status ? 0 : parse_duration($args[0]);
+        die "Doppio requires macOS.\n" unless $^O eq 'darwin';
+        my $dir = state_directory();
+        my $lock = open_private("$dir/session.lock", O_RDWR | O_CREAT);
+        my $result = $is_status ? status($dir, $lock)
+            : run_session($dir, $lock, $seconds, $display);
+        close($lock) or die "Cannot close session lock: $!\n";
+        $result;
+    };
+    if ($@) {
+        print STDERR "doppio: $@";
+        return 1;
+    }
+    return $code;
+}
+
+exit Doppio::main(@ARGV) unless caller;
+1;
