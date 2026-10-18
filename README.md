@@ -3,6 +3,11 @@
 A small macOS terminal utility around the built-in `caffeinate`, written in
 TypeScript with Bun. Use **`doppio`** or its symlink **`dop`**.
 
+## Current behavior
+
+The merged baseline is a minimal foreground wrapper. The examples and
+build/install instructions below describe what works today.
+
 ```sh
 dop 30m
 dop 1h30m
@@ -14,7 +19,7 @@ By default, doppio prevents **idle system sleep** but lets the display sleep.
 Keep the terminal open; **Ctrl-C** stops early and releases both assertions.
 There is no countdown or status command. Multiple invocations are independent.
 
-## Usage
+## Current usage
 
 ```text
 doppio [-d] DURATION
@@ -39,6 +44,58 @@ normal completion exit 0; invalid arguments exit 2; launch failures exit 1.
 Other child exit codes propagate, with a diagnostic for unexpected failure.
 Ctrl-C exits 130; SIGTERM sent only to doppio is forwarded to its child, which
 is reaped before doppio exits 143.
+
+## Next iteration (not implemented yet)
+
+Doppio is evolving toward a Vite-inspired terminal experience: a live countdown,
+visible session information, and discoverable single-key shortcuts. By default,
+it will occupy the terminal and keep both the system and display awake.
+Ctrl-C will end the foreground session and release its assertions.
+
+The planned command interface is:
+
+| Command | Planned behavior |
+| --- | --- |
+| `dop 30m` | Start an interactive countdown; keep system and display awake |
+| `dop 30m -d` | Start detached and return the shell prompt |
+| `dop 30m --detach` | Same as `-d` |
+| `dop status` | Print remaining time and mode, then exit |
+| `dop stop` | End the active session |
+
+**Flag change:** `-d` will mean **detach**, not display sleep prevention.
+This is an intentional change from the current implementation. Doppio's
+interface does not need to match caffeinate's flags one-for-one.
+
+The interactive view will include a shortcut to allow display sleep while
+keeping the system awake, and to switch back. Allowing display sleep lets
+macOS's normal idle policy take over; it does not immediately turn off the
+screen or change screen-locking policy.
+
+This is an illustrative layout, not a finalized shortcut map:
+
+```text
+  doppio
+
+  Remaining  00:28:46
+  System awake / display awake
+
+  s  allow display sleep
+  q  stop and exit
+  ?  show shortcuts
+```
+
+Concurrent-session behavior, the final shortcut map, and attaching to detached
+sessions are still open design questions. Restarting or extending timers and
+detaching through a shortcut are ideas, not committed features.
+
+[SPEC.md](SPEC.md) records confirmed direction and unresolved decisions. It is
+a living design: implementation and usage can inform deliberate changes through
+collaboration, rather than being constrained by an earlier draft.
+
+Direct binary downloads and Homebrew are desired installation channels;
+npm/pnpm distribution is also under consideration. These are not available yet.
+The compiled executable will continue to run without a separately installed
+JavaScript runtime; the current build and manual-install steps follow.
 
 ## Build
 
