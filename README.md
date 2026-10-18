@@ -34,7 +34,11 @@ session state. Multiple invocations remain independent.
 ```text
 doppio DURATION
 doppio -h | --help
+doppio -v | --version
 ```
+
+`-v` / `--version` prints the version, e.g. `doppio 0.1.0 (a61c636)`. The
+interactive session header shows the same label.
 
 Durations use lowercase whole hours and/or minutes, in that order, without
 spaces: `30m`, `1h`, `1h30m`, or `90m`. `0h30m` and `2h90m` are also valid.
@@ -83,7 +87,7 @@ interface does not need to match caffeinate's flags one-for-one.
 The current view uses these controls:
 
 ```text
-  doppio
+  doppio 0.1.0 (a61c636)
   s  toggle display sleep | q  stop | ?  help | Ctrl-C  interrupt
   00:28:46  system awake / display awake
 ```
@@ -123,6 +127,11 @@ This builds for the current machine's architecture. Bun embeds its runtime:
 the macOS arm64 build with Bun 1.3.0 is approximately **60.4 MB**, not a tiny
 native binary. Build again after changing source files; documentation-only
 changes need no rebuild. Generated binaries are ignored, not checked in.
+
+The version comes from `package.json`'s `version` field. `bun run build`
+also embeds the current git short commit, so a compiled binary reports e.g.
+`doppio 0.1.0 (a61c636)`; running from source reports `doppio 0.1.0`. Bump
+`version` in `package.json` when cutting a release.
 No signed release or installer is provided.
 
 For development without compiling:

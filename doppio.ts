@@ -1,14 +1,20 @@
 import { runSession } from "./session";
 import { terminalView } from "./terminal";
+import { versionLabel } from "./version";
 
 const usage = `Usage: doppio DURATION
        doppio -h | --help
+       doppio -v | --version
 DURATION: positive whole hours/minutes, e.g. 2h, 45m, 1h30m
 Prevents idle system and display sleep by default.
 In an interactive terminal: s toggles display sleep prevention; q stops.
 Keep this terminal open. Press Ctrl-C to stop early.
 No detached operation or status/stop commands are implemented yet.
 dop is another name for the same command.`;
+
+export function versionRequested(args: string[]): boolean {
+  return args.length === 1 && (args[0] === "--version" || args[0] === "-v");
+}
 
 export function durationFor(args: string[]): number | null {
   if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) return null;
@@ -23,7 +29,9 @@ export function durationFor(args: string[]): number | null {
   return seconds;
 }
 
-if (import.meta.main) {
+if (import.meta.main && versionRequested(Bun.argv.slice(2))) {
+  console.log(versionLabel);
+} else if (import.meta.main) {
   let seconds: number | null;
   try {
     seconds = durationFor(Bun.argv.slice(2));
