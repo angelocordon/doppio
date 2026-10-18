@@ -51,10 +51,12 @@ explicitly rather than searching PATH.
 ```sh
 git clone https://github.com/angelocordon/doppio.git
 cd doppio
-mkdir -p dist
-bun build --compile ./doppio.ts --outfile ./dist/doppio
+bun run build
 ./dist/doppio --help
 ```
+
+`package.json` records the Bun version and provides build/test scripts; it
+declares no dependencies, so `bun install` is unnecessary.
 
 This builds for the current machine's architecture. Bun embeds its runtime:
 the macOS arm64 build with Bun 1.3.0 is approximately **60.4 MB**, not a tiny
@@ -93,9 +95,9 @@ There are no state files, locks, services, or background daemons to remove.
 ## Checks
 
 ```sh
-bun test ./doppio.test.ts
-DOPPIO_BINARY=./dist/doppio bun test ./doppio.test.ts
-DOPPIO_BINARY=./dist/doppio DOPPIO_REAL_TESTS=1 bun test ./doppio.test.ts
+bun run test
+DOPPIO_BINARY=./dist/doppio bun run test
+DOPPIO_BINARY=./dist/doppio DOPPIO_REAL_TESTS=1 bun run test
 ```
 
 The first command covers duration/argv generation, subprocess exits and launch
