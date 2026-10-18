@@ -1,73 +1,110 @@
 # Doppio specification
 
-This is the source of truth for the initial utility's scope and behavior.
-The README describes installation and everyday use.
+## Goal and scope
 
-## Goal
+Make macOS's built-in `caffeinate` convenient to invoke with hours and minutes.
+A small zsh function named `doppio`, with `dop` as an alias, is a legitimate
+simplest solution. A standalone TypeScript binary is an optional experiment,
+not a reason to build a session-management application.
 
-Provide a small, dependency-light macOS terminal wrapper around the built-in
-`caffeinate`, called `doppio` with `dop` as the short command. The primary use
-case is temporarily preventing idle sleep while working, including supported
-powered-clamshell setups with an external display.
+This specification supersedes the earlier countdown, status, and shared-state
+requirements. The old implementation in closed, unmerged PR #1 is paused, not
+the product direction. Runtime selection and implementation approval are pending.
+The README still describes the earlier scope and must be reconciled after the
+implementation direction is chosen.
 
 ## CLI contract
 
-- `dop DURATION` and `doppio DURATION` prevent idle system sleep, allowing the
-  display to sleep. Invoke `caffeinate -i`.
-- Accept positive whole hours and/or minutes, in that order: `1h`, `30m`, `90m`,
-  `1h30m`. Reject missing units, fractions, negative/zero durations, unknown
-  arguments, and trailing input. Bound the timeout to 2,147,483,647 seconds.
-- `-d DURATION` and `--display DURATION` additionally prevent idle display sleep,
-  matching `caffeinate -d`. Neither form declares user activity or disables locks.
-- Run in the foreground, showing a live `HH:MM:SS` countdown. Update one line on
-  a terminal, or emit one line per second when redirected.
-- `dop status` from another terminal shows remaining time and the current mode,
-  or explicitly says no session is active. Both command names share state.
-- `-h` and `--help` describe the CLI.
-- Return 0 for completion/help/status, 1 for errors, 130 for Ctrl-C, 143 for
-  SIGTERM, and 129 for SIGHUP.
+```text
+doppio [-d] DURATION
+doppio -h | --help
+```
 
-## Lifecycle and state
+`dop` has exactly the same behavior through a shell alias or symlink, not a
+second implementation. Help briefly describes the syntax, units, display
+option, and Ctrl-C. No arguments, unknown options, or extra arguments produce a
+clear error and a nonzero exit without starting `caffeinate`.
 
-- Allow only one active session per user. Reject a concurrent start without
-  replacing the existing session's state or signaling its processes.
-- Use private per-user state in `~/Library/Application Support/doppio`, with a
-  `0700` directory and private regular state/lock files. Reject unsafe directories,
-  lock files, and active state (including symlinks). Publish complete state
-  atomically; stale state may be safely unlinked without following its contents.
-- Use an OS-held lock, not a saved PID, to determine whether a session is active.
-  Ignore stale JSON without a held lock; replace it on the next successful start.
-  Keep the lock file in place so different invocations lock the same inode.
-- Use a monotonic deadline for the countdown and status, independent of wall
-  clock changes. State is local to this machine and this user's HOME.
-- On expiration, Ctrl-C, SIGTERM, SIGHUP, or a startup/runtime error, stop and
-  reap only the wrapper's own child and remove the session record.
-- Pass both `-t SECONDS` and `-w WRAPPER_PID` to caffeinate so assertions are
-  bounded and released if the wrapper is force-killed. Never kill a PID read
-  from persisted state.
-- Surface invalid active state, state-access errors, and caffeinate failures.
-  Do not report a successful completed session when caffeinate fails early.
+Durations use lowercase whole hours and/or minutes, in that order, without
+spaces: `30m`, `1h`, `1h30m`, and `90m`. Each unit may appear at most once.
+Components are nonnegative decimal integers and the total must be positive;
+`0h30m` and `2h90m` are valid. Reject bare numbers, signs, fractions, `s`/`ms`,
+reversed/repeated units, malformed strings, and zero-length durations.
 
-## Non-goals and boundaries
+Convert once to whole seconds: hours * 3600 + minutes * 60. Reject unsafe
+integer arithmetic or a total above 2,147,483,647 seconds with a simple bounds
+check. Do not add a duration-parsing dependency.
 
-No background/detached mode, command wrapping, daemon, shell-startup changes,
-automatic PATH installation, third-party runtime modules, CI infrastructure,
-or packaging ecosystem is included.
+**Units correction:** `caffeinate -t` accepts seconds, not milliseconds.
+`1h30m` is `5400` seconds, not `5400000`.
 
-Preventing idle sleep does not override forced lid-close sleep, explicit Sleep,
-low-battery behavior, screen locking, or organizational policies. Doppio does not
-create an unsupported clamshell configuration or promise to wake a sleeping
-display. Do not use caffeinate's `-s`, `-u`, or `-m` flags.
+### Assertion flags: provisional comparison baseline
 
-## Acceptance criteria
+The bounded prototypes currently preserve idle system sleep prevention by
+default and add display prevention with `-d`:
 
-- Both command names launch the same behavior; README commands install both
-  explicitly without modifying shell configuration.
-- Focused tests verify accepted/rejected durations and their exact seconds,
-  a decreasing countdown, active/inactive status, both display flag spellings,
-  exact caffeinate argument lists, and concurrent-start rejection.
-- Tests verify expiration, Ctrl-C, termination, stale state, unsafe state,
-  malformed active JSON, exec failure, and unexpected child exit.
-- Short macOS integration checks run real caffeinate in both modes and verify
-  cleanup, including abrupt wrapper death, without leaving assertions running.
-- Tests isolate their HOME and state; no tests signal unrelated processes.
+| Invocation | Delegated command |
+| --- | --- |
+| `dop 30m` | `/usr/bin/caffeinate -i -t 1800` |
+| `dop -d 1h30m` | `/usr/bin/caffeinate -i -d -t 5400` |
+
+This is inherited behavior, **not a newly confirmed user decision**. The user's
+`caffeinate -dt` illustration could instead mean display-only assertions for
+`-d` (`caffeinate -d -t 5400`, without `-i`). Resolve this specific distinction
+before treating either flag mapping as final. Do not expand the minimal CLI
+with additional modes or a `--display` option.
+
+## Delegation and boundaries
+
+Run `caffeinate` in the foreground and let it own timing and assertions. Keep
+the terminal session open; Ctrl-C stops the invoked work without orphaning its
+`caffeinate`. Completion/help succeed; invalid input, launch errors, and
+unexpected child failures are visible and nonzero. Prefer direct process
+replacement or simple supported process APIs, not a custom exit-code/signal
+framework. Wrapper-PID `-w` bookkeeping is not a required architecture.
+
+Multiple invocations are independent and allowed. No countdown, status command,
+session registry, PID records, OS-held locks, atomic private state, cross-process
+clocks, daemon, UI, background service, detached mode, or command-wrapping mode.
+Do not recreate the old lifecycle guarantees through helper subsystems.
+
+Preventing idle sleep does not bypass lid-close sleep, explicit Sleep, low
+battery, locking, or device/organizational policy. Supported powered-clamshell
+use remains macOS's responsibility. Do not promise to wake an already sleeping
+display or use `caffeinate`'s `-s`, `-u`, or `-m` flags.
+
+## Implementation experiment and simplicity guardrails
+
+Prefer one easy-to-read, easy-to-modify TypeScript file if pursuing a binary.
+Perry and Bun are bounded alternatives being compared; neither is selected,
+and no implementation merge is authorized by this specification.
+
+Both can avoid a separately installed runtime for the end user. Perry's
+native compilation also aims to avoid an embedded JavaScript engine; Bun's
+standalone executable embeds its runtime and must not be assumed tiny.
+Compiler/runtime installation is a build-time requirement, not an end-user
+requirement. Compare actual support, clarity, and artifact size rather than
+promising a particular binary size.
+
+Use only straightforward supported APIs. If Perry needs custom C, FFI,
+compiler patches, or a helper subsystem for this wrapper, stop that experiment
+and compare Bun rather than working around the compiler. No third-party
+runtime packages or native bridge merely to restore the old guarantees.
+The zsh baseline remains acceptable if the binary adds disproportionate cost.
+
+## Focused acceptance checks
+
+- Parser examples produce exact seconds: `30m` -> `1800`, `1h` -> `3600`,
+  `1h30m` and `90m` -> `5400`; zero components are accepted only for a positive
+  total. Reject `0m`, `1`, `1s`, `1ms`, `1.5h`, `-1m`, `30m1h`, `1h1h`,
+  trailing text/arguments, and values beyond the arithmetic/timeout bounds.
+- Verify both command names, small help, and exact delegated arguments for
+  both provisional flag mappings above, updating those expectations when the
+  display-only versus combined assertion decision is confirmed.
+- On macOS, verify a real foreground run, normal completion, Ctrl-C without
+  leftover invoked work, and a visible nonzero launch/child failure. Use a
+  short timeout in the integration harness rather than widening the public
+  grammar to seconds; clean up only processes created by the check.
+
+Keep checks proportional to a thin wrapper. No full session lifecycle suite,
+private-state test harness, or unrelated packaging/CI infrastructure is required.
