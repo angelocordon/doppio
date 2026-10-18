@@ -12,11 +12,33 @@ Revisit requirements when implementation or usage reveals a better approach;
 record intentional changes here rather than treating an earlier spec as fixed.
 Confirmed direction, proposals, and open questions are distinguished below.
 
-The merged baseline from [#4](https://github.com/angelocordon/doppio/pull/4)
-is a minimal TypeScript/Bun foreground wrapper with duration parsing and signal
-forwarding. It has no countdown, shortcuts, status, or detached mode; its `-d`
-still means display sleep prevention. The README documents that implemented
-behavior. The next-iteration design below is not yet implemented.
+The baseline from [#4](https://github.com/angelocordon/doppio/pull/4) provided
+duration parsing and signal forwarding. The lean foreground iteration now adds
+a countdown, system/display sleep prevention by default, and single-key controls.
+The README documents delivered behavior. Detached operation and cross-process
+session control below are future direction, not implemented features.
+
+## Delivered foreground iteration
+
+- Run independent foreground sessions with one monotonic deadline and two owned
+  caffeinate children: continuous `-i` and switchable `-d`, each bounded with
+  `-t` and tied to its owner's exit with `-w`.
+- Show `HH:MM:SS` remaining (hours may exceed two digits), the display policy,
+  and discoverable controls: s toggles display prevention, q stops normally,
+  ? shows help, and Ctrl-C interrupts.
+- Reap children and restore terminal input after completion, q, interruption,
+  and handled termination. Ctrl-D stops; Ctrl-Z/SIGTSTP ends rather than
+  suspending an assertion-holding session.
+- Fall back to plain foreground start/end messages without shortcuts if either
+  stream is not a TTY or `TERM=dumb`. Never silently detach.
+- Reject legacy `-d` and future `--detach` with an explanation that both
+  assertions are the default and detachment is not implemented.
+- Keep invocation independence. No workers, sockets, registries, locks, saved
+  state, status/stop commands, attach/watch, restart, or timer extension.
+
+The approved foreground scope deliberately leaves the broader session-management
+design for a later iteration. Forced-system-sleep accounting remains unguaranteed;
+no native clock glue or wall-clock substitution is introduced.
 
 ## Confirmed direction
 
@@ -29,11 +51,15 @@ behavior. The next-iteration design below is not yet implemented.
 - Provide an interactive shortcut to allow display sleep while continuing to
   prevent idle system sleep, and to switch back.
 - Use `-d` / `--detach` to start in the background and return the shell prompt.
-  This intentionally replaces the baseline's `-d` display flag.
+  This is future behavior, intentionally replacing the baseline's `-d` display
+  flag. The foreground iteration rejects the flag until detachment exists.
 - Provide `dop status` to report remaining time and mode without holding the
-  terminal, and `dop stop` to end an active session.
+  terminal, and `dop stop` to end an active session. These are future commands.
 
-## Next-iteration CLI
+## Command interface
+
+The delivered CLI is `dop DURATION` and `dop -h | --help`. The complete future
+session-management interface (not implemented in this iteration) is:
 
 ```text
 dop DURATION
@@ -76,17 +102,12 @@ Ctrl-C stops a foreground session, releases its assertions, and restores normal
 terminal input. Completion and error paths must also restore terminal settings.
 Do not require a full TUI framework just to render a countdown and read keys.
 
-Illustrative layout, not a finalized key map:
+Illustrative layout; s, q, ?, and Ctrl-C are the delivered controls:
 
 ```text
   doppio
-
-  Remaining  00:28:46
-  System awake / display awake
-
-  s  allow display sleep
-  q  stop and exit
-  ?  show shortcuts
+  s  toggle display sleep | q  stop | ?  help | Ctrl-C  interrupt
+  00:28:46  system awake / display awake
 ```
 
 ### Detached sessions and control commands
@@ -114,13 +135,16 @@ or successful completion.
 
 Foreground completion, Ctrl-C, and termination must clean up owned children.
 Detached sessions require lifecycle and state handling beyond the minimal
-baseline; choose that design before implementation. Do not assume the old
-independent-invocation behavior is sufficient for `status` and `stop`.
+foreground implementation; choose that design before implementing background
+operation. Independent invocations remain valid for the foreground-only scope,
+but are not sufficient for future `status` and `stop`.
 
 Retain the baseline exit conventions where applicable: help and successful
 completion exit 0, invalid input exits 2, launch errors exit 1, Ctrl-C exits 130,
-and SIGTERM exits 143 after cleanup. Define control-command outcomes alongside
-their unresolved semantics.
+and SIGTERM exits 143 after cleanup. The foreground iteration also returns 0
+for q, 1 for unexpected assertion failure, 129 for SIGHUP, and 146 for macOS
+suspension requests after cleanup. Define future control-command outcomes
+alongside their unresolved semantics.
 
 Preventing idle sleep does not bypass lid-close sleep, explicit Sleep, low
 battery, screen locking, or device/organizational policy. Supported powered
@@ -149,13 +173,13 @@ startup files or overwrite existing commands during manual installation.
 
 - Should there be one active session per user, or multiple addressable sessions?
   How should a second start behave, and which session do `status` and `stop` target?
-- What is the final shortcut map? Timer restart, adding time, and in-session
-  detachment have been suggested but are not confirmed features.
+- Should the delivered shortcut map evolve? Timer restart, adding time, and
+  in-session detachment have been suggested but are not confirmed features.
 - Should a CLI option allow display sleep from the start, and what is its name?
 - Can users attach a visual timer to an existing detached session? If so, does
   closing that view merely stop watching, or end the session?
-- What should noninteractive input and redirected output do? Single-key input
-  must not be enabled without a suitable terminal.
+- Should plain foreground non-TTY behavior change when background operation
+  becomes available? Single-key input requires a suitable terminal.
 - What state, locking, process identity, and crash/disconnection cleanup are
   needed for reliable detached operation and control commands?
 - Should countdown time include time spent in forced system sleep?
@@ -165,9 +189,9 @@ startup files or overwrite existing commands during manual installation.
 ## Verification direction
 
 Keep existing parsing, direct subprocess invocation, source/compiled execution,
-and real-macOS assertion checks. Update expectations when intentional behavior
-changes land; notably, `-d` will mean detach and default assertions will include
-display sleep prevention.
+and real-macOS assertion checks. Default assertions now include display sleep
+prevention, and `-d` is explicitly rejected. Update expectations again when
+detached operation implements the flag.
 
 Add focused coverage with each implemented feature: countdown accuracy,
 interactive keys and terminal restoration, display toggling without losing

@@ -5,24 +5,34 @@ TypeScript with Bun. Use **`doppio`** or its symlink **`dop`**.
 
 ## Current behavior
 
-The merged baseline is a minimal foreground wrapper. The examples and
-build/install instructions below describe what works today.
+Each invocation runs independently in the foreground. In an interactive
+terminal, Doppio shows a live `HH:MM:SS` countdown and single-key controls:
 
 ```sh
 dop 30m
 dop 1h30m
-dop -d 1h
+dop 1h
 ```
 
-By default, doppio prevents **idle system sleep** but lets the display sleep.
-`-d` adds idle display sleep prevention without dropping system sleep prevention.
-Keep the terminal open; **Ctrl-C** stops early and releases both assertions.
-There is no countdown or status command. Multiple invocations are independent.
+Doppio prevents **idle system and display sleep** by default. Press **s** to
+allow display sleep while keeping the system awake, then **s** again to restore
+display sleep prevention. This lets macOS's idle policy take over; it does not
+immediately turn off the screen or change screen locking.
+
+Press **q** to stop normally, **Ctrl-C** to interrupt, or **?** for help.
+Keep the terminal open. Completion and handled termination restore terminal
+input and release the owned assertions. Ctrl-D also stops; Ctrl-Z ends the
+session rather than suspending it while leaving assertions running.
+
+With redirected input/output or `TERM=dumb`, Doppio stays in the foreground
+and prints plain start/end messages, without animation or shortcuts. Signals
+still stop it. There is no detached operation, status/stop command, or saved
+session state. Multiple invocations remain independent.
 
 ## Current usage
 
 ```text
-doppio [-d] DURATION
+doppio DURATION
 doppio -h | --help
 ```
 
@@ -33,59 +43,53 @@ bare numbers, signs, fractions, extra arguments, and `--display` are unsupported
 The maximum is 2,147,483,647 seconds; the largest whole-minute input is
 `35791394m`.
 
-| Invocation | Command run |
-| --- | --- |
-| `dop 30m` | `/usr/bin/caffeinate -i -t 1800` |
-| `dop -d 1h30m` | `/usr/bin/caffeinate -i -d -t 5400` |
+**Compatibility change:** legacy `-d` is explicitly rejected: both assertions
+are now the default. `-d` / `--detach` will not mean detach until background
+operation is implemented.
 
-`caffeinate -t` takes **seconds**, not milliseconds. Doppio delegates all timing
-to it and waits in the foreground. Standard streams are inherited. Help and
-normal completion exit 0; invalid arguments exit 2; launch failures exit 1.
-Other child exit codes propagate, with a diagnostic for unexpected failure.
-Ctrl-C exits 130; SIGTERM sent only to doppio is forwarded to its child, which
-is reaped before doppio exits 143.
+Doppio owns two `/usr/bin/caffeinate` children, one with `-i` for system sleep
+and one with `-d` for display sleep. Both use `-w OWNER_PID -t SECONDS`.
+The display toggle stops/restarts only the display child, leaving the system
+child uninterrupted. `-w` ties assertion lifetime to the owning Doppio process;
+`-t` provides an additional finite bound. No command is looked up through PATH.
 
-## Next iteration (not implemented yet)
+One monotonic deadline drives expiry and the countdown; delayed renders do not
+accumulate drift or reset the timer. Each child receives the remaining duration
+rounded up to whole **seconds**, not milliseconds. Unexpected assertion-child
+exit ends the session with a diagnostic instead of showing a healthy countdown.
 
-Doppio is evolving toward a Vite-inspired terminal experience: a live countdown,
-visible session information, and discoverable single-key shortcuts. By default,
-it will occupy the terminal and keep both the system and display awake.
-Ctrl-C will end the foreground session and release its assertions.
+Help, completion, and q exit 0; invalid arguments exit 2; operational failures
+exit 1. Ctrl-C exits 130, SIGTERM 143, SIGHUP 129, and suspension requests 146
+on macOS, after owned-child cleanup. Terminal state cannot be restored after
+SIGKILL or a crash, but owner-bound caffeinate assertions release on owner exit.
 
+## Future direction (not implemented yet)
+
+The foreground countdown is the first lean iteration of the Vite-inspired
+experience. Background operation and cross-process control remain future work.
 The planned command interface is:
 
 | Command | Planned behavior |
 | --- | --- |
-| `dop 30m` | Start an interactive countdown; keep system and display awake |
 | `dop 30m -d` | Start detached and return the shell prompt |
 | `dop 30m --detach` | Same as `-d` |
 | `dop status` | Print remaining time and mode, then exit |
 | `dop stop` | End the active session |
 
-**Flag change:** `-d` will mean **detach**, not display sleep prevention.
-This is an intentional change from the current implementation. Doppio's
+**Future flag change:** `-d` will mean **detach**, not display sleep prevention.
+It is currently rejected, not interpreted as detach. Doppio's
 interface does not need to match caffeinate's flags one-for-one.
 
-The interactive view will include a shortcut to allow display sleep while
-keeping the system awake, and to switch back. Allowing display sleep lets
-macOS's normal idle policy take over; it does not immediately turn off the
-screen or change screen-locking policy.
-
-This is an illustrative layout, not a finalized shortcut map:
+The current view uses these controls:
 
 ```text
   doppio
-
-  Remaining  00:28:46
-  System awake / display awake
-
-  s  allow display sleep
-  q  stop and exit
-  ?  show shortcuts
+  s  toggle display sleep | q  stop | ?  help | Ctrl-C  interrupt
+  00:28:46  system awake / display awake
 ```
 
-Concurrent-session behavior, the final shortcut map, and attaching to detached
-sessions are still open design questions. Restarting or extending timers and
+Future session selection and attaching to detached sessions remain open design
+questions. Current invocations are independent. Restarting or extending timers and
 detaching through a shortcut are ideas, not committed features.
 
 [SPEC.md](SPEC.md) records confirmed direction and unresolved decisions. It is
@@ -117,14 +121,14 @@ declares no dependencies, so `bun install` is unnecessary.
 
 This builds for the current machine's architecture. Bun embeds its runtime:
 the macOS arm64 build with Bun 1.3.0 is approximately **60.4 MB**, not a tiny
-native binary. Build again after changing `doppio.ts`; documentation-only
+native binary. Build again after changing source files; documentation-only
 changes need no rebuild. Generated binaries are ignored, not checked in.
 No signed release or installer is provided.
 
 For development without compiling:
 
 ```sh
-bun run ./doppio.ts -d 30m
+bun run ./doppio.ts 30m
 ```
 
 ## Manual installation
@@ -157,13 +161,14 @@ DOPPIO_BINARY=./dist/doppio bun run test
 DOPPIO_BINARY=./dist/doppio DOPPIO_REAL_TESTS=1 bun run test
 ```
 
-The first command covers duration/argv generation, subprocess exits and launch
-errors, and the source CLI. The second also exercises the compiled CLI and
-`dop` symlink. The final command is macOS-only: it briefly checks actual power
-assertions, terminal Ctrl-C via macOS `script`, and wrapper-only SIGTERM in both
-modes for source and compiled builds. It also waits for **one real one-minute
-completion**. Real checks stop/reap their own children; they do not signal
-unrelated processes. Test-only temporary files are removed afterward.
+The first command covers parsing, deadline/formatting, display toggles, owned
+child failures/cleanup, view restoration, and the source CLI. The second also
+exercises the compiled CLI and `dop` symlink. The final command is macOS-only:
+it checks actual power assertions, display toggles without replacing the system
+child, terminal q/Ctrl-C/Ctrl-Z and restoration via macOS `script`, plain output
+and wrapper-only SIGTERM/SIGHUP, and assertion release after owner SIGKILL.
+It also waits for **one real one-minute completion**. Real checks stop/reap only
+test-owned processes. Test-only temporary files are removed afterward.
 
 ## Boundaries
 
@@ -172,8 +177,8 @@ battery, screen locking, or organizational/device policies. It does not promise
 to wake an already sleeping display. Powered clamshell operation remains
 macOS's responsibility.
 
-Doppio does not use `caffeinate -s`, `-u`, `-m`, or `-w`. There is no detached
+Doppio does not use `caffeinate -s`, `-u`, or `-m`. There is no detached
 mode, command wrapping, session registry, or cross-process coordination.
-SIGKILL, crashes, and terminal disconnection have no custom cleanup guarantee;
-`caffeinate -t` still bounds any surviving assertion's lifetime. Use
-`pmset -g assertions` to inspect system-wide power assertions.
+Forced sleep/resume time accounting is not guaranteed; the timer is not a
+wall-clock alarm. Doppio does not promise to survive a terminal disconnect.
+Use `pmset -g assertions` to inspect system-wide power assertions.
