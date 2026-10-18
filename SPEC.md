@@ -3,15 +3,13 @@
 ## Goal and scope
 
 Make macOS's built-in `caffeinate` convenient to invoke with hours and minutes.
-A small zsh function named `doppio`, with `dop` as an alias, is a legitimate
-simplest solution. A standalone TypeScript binary is an optional experiment,
-not a reason to build a session-management application.
+Implement a thin foreground utility named `doppio` in one readable TypeScript
+file using Bun's public built-in subprocess APIs. Compile a standalone
+executable with `bun build --compile`; the end user needs no separately
+installed JavaScript runtime. `dop` is a symlink to the same executable.
 
-This specification supersedes the earlier countdown, status, and shared-state
-requirements. The old implementation in closed, unmerged PR #1 is paused, not
-the product direction. Runtime selection and implementation approval are pending.
-The README still describes the earlier scope and must be reconciled after the
-implementation direction is chosen.
+This specification replaces the earlier countdown, status, and shared-state
+requirements. It is a convenience wrapper, not a session-management application.
 
 ## CLI contract
 
@@ -20,9 +18,9 @@ doppio [-d] DURATION
 doppio -h | --help
 ```
 
-`dop` has exactly the same behavior through a shell alias or symlink, not a
-second implementation. Help briefly describes the syntax, units, display
-option, and Ctrl-C. No arguments, unknown options, or extra arguments produce a
+`dop` has exactly the same behavior, not a second implementation. Help briefly
+describes the syntax, units, display option, and Ctrl-C. No arguments, unknown
+options, or extra arguments produce a
 clear error and a nonzero exit without starting `caffeinate`.
 
 Durations use lowercase whole hours and/or minutes, in that order, without
@@ -38,30 +36,32 @@ check. Do not add a duration-parsing dependency.
 **Units correction:** `caffeinate -t` accepts seconds, not milliseconds.
 `1h30m` is `5400` seconds, not `5400000`.
 
-### Assertion flags: provisional comparison baseline
+### Assertion flags
 
-The bounded prototypes currently preserve idle system sleep prevention by
-default and add display prevention with `-d`:
+Prevent idle system sleep by default. `-d` additionally prevents idle display
+sleep; it does not replace `-i`:
 
 | Invocation | Delegated command |
 | --- | --- |
 | `dop 30m` | `/usr/bin/caffeinate -i -t 1800` |
 | `dop -d 1h30m` | `/usr/bin/caffeinate -i -d -t 5400` |
 
-This is inherited behavior, **not a newly confirmed user decision**. The user's
-`caffeinate -dt` illustration could instead mean display-only assertions for
-`-d` (`caffeinate -d -t 5400`, without `-i`). Resolve this specific distinction
-before treating either flag mapping as final. Do not expand the minimal CLI
-with additional modes or a `--display` option.
+Do not expand the CLI with additional modes or a `--display` option.
 
 ## Delegation and boundaries
 
-Run `caffeinate` in the foreground and let it own timing and assertions. Keep
-the terminal session open; Ctrl-C stops the invoked work without orphaning its
-`caffeinate`. Completion/help succeed; invalid input, launch errors, and
-unexpected child failures are visible and nonzero. Prefer direct process
-replacement or simple supported process APIs, not a custom exit-code/signal
-framework. Wrapper-PID `-w` bookkeeping is not a required architecture.
+Launch `/usr/bin/caffeinate` with a direct argument array, not shell
+interpolation or PATH lookup. Inherit standard streams, wait for the child,
+and let it own timing and assertions. Keep the terminal session open.
+Forward SIGINT and SIGTERM to this invocation's child and reap it before
+exiting. Do not introduce a custom lifecycle subsystem.
+
+Help and normal completion exit 0. Invalid input produces a clear diagnostic
+and exits 2 without launching the child. Launch errors are visible and exit 1;
+unexpected child failures are reported and preserve the child's exit code.
+Ctrl-C exits 130 and wrapper-only SIGTERM exits 143 after child cleanup.
+There is no custom SIGHUP, crash, or SIGKILL cleanup guarantee; the delegated
+timeout bounds any surviving assertion. Do not add wrapper-PID `-w` bookkeeping.
 
 Multiple invocations are independent and allowed. No countdown, status command,
 session registry, PID records, OS-held locks, atomic private state, cross-process
@@ -73,24 +73,21 @@ battery, locking, or device/organizational policy. Supported powered-clamshell
 use remains macOS's responsibility. Do not promise to wake an already sleeping
 display or use `caffeinate`'s `-s`, `-u`, or `-m` flags.
 
-## Implementation experiment and simplicity guardrails
+## Implementation and distribution
 
-Prefer one easy-to-read, easy-to-modify TypeScript file if pursuing a binary.
-Perry and Bun are bounded alternatives being compared; neither is selected,
-and no implementation merge is authorized by this specification.
+Use Bun's supported `spawn`, subprocess `exited`/`kill`, and process signal
+listeners. Keep duration parsing dependency-free and expose small internal
+functions for focused tests without test-only CLI flags or environment bypasses.
+Do not add native code, FFI, third-party runtime packages, own duration timers,
+or a framework merely to restore the old guarantees.
 
-Both can avoid a separately installed runtime for the end user. Perry's
-native compilation also aims to avoid an embedded JavaScript engine; Bun's
-standalone executable embeds its runtime and must not be assumed tiny.
-Compiler/runtime installation is a build-time requirement, not an end-user
-requirement. Compare actual support, clarity, and artifact size rather than
-promising a particular binary size.
-
-Use only straightforward supported APIs. If Perry needs custom C, FFI,
-compiler patches, or a helper subsystem for this wrapper, stop that experiment
-and compare Bun rather than working around the compiler. No third-party
-runtime packages or native bridge merely to restore the old guarantees.
-The zsh baseline remains acceptable if the binary adds disproportionate cost.
+Bun is required to develop, test, and build, not to run the compiled executable.
+Its standalone output embeds the runtime and is not assumed tiny; document the
+measured size and build version. Build for the intended macOS architecture.
+Provide explicit manual installation of the executable and `dop` symlink.
+Do not modify shell startup files or automatically overwrite an existing alias.
+Do not check in generated binaries/toolchains or add unrelated packaging
+infrastructure.
 
 ## Focused acceptance checks
 
@@ -98,13 +95,16 @@ The zsh baseline remains acceptable if the binary adds disproportionate cost.
   `1h30m` and `90m` -> `5400`; zero components are accepted only for a positive
   total. Reject `0m`, `1`, `1s`, `1ms`, `1.5h`, `-1m`, `30m1h`, `1h1h`,
   trailing text/arguments, and values beyond the arithmetic/timeout bounds.
-- Verify both command names, small help, and exact delegated arguments for
-  both provisional flag mappings above, updating those expectations when the
-  display-only versus combined assertion decision is confirmed.
-- On macOS, verify a real foreground run, normal completion, Ctrl-C without
-  leftover invoked work, and a visible nonzero launch/child failure. Use a
-  short timeout in the integration harness rather than widening the public
-  grammar to seconds; clean up only processes created by the check.
+- Verify both command names, small help, invalid arguments without spawning,
+  and the exact absolute executable/arguments for both assertion modes.
+- Exercise the real supported subprocess boundary for successful/failed child
+  exits and visible launch errors without replacing production's executable
+  selection or adding a public testing bypass.
+- Check both source and actual compiled CLI behavior. On macOS, verify a real
+  foreground run and assertions in both modes, a one-minute normal completion,
+  terminal Ctrl-C without leftover work, and separately wrapper-PID-only
+  SIGTERM cleanup. Use existing macOS `script` for terminal checks rather than
+  building a PTY framework. Stop/reap only processes created by the check.
 
 Keep checks proportional to a thin wrapper. No full session lifecycle suite,
 private-state test harness, or unrelated packaging/CI infrastructure is required.

@@ -1,136 +1,120 @@
 # doppio
 
-A small macOS terminal wrapper around the built-in `caffeinate`, with friendly
-durations, a live foreground countdown, and status from another terminal.
-Use either **`doppio`** or **`dop`**.
+A small macOS terminal utility around the built-in `caffeinate`, written in
+TypeScript with Bun. Use **`doppio`** or its symlink **`dop`**.
 
 ```sh
-dop 1h
 dop 30m
-dop 90m
 dop 1h30m
-dop --display 30m
+dop -d 1h
 ```
 
 By default, doppio prevents **idle system sleep** but lets the display sleep.
-`-d` / `--display` also prevents idle display sleep, matching `caffeinate -d`.
-Press **Ctrl-C** to stop early and release the assertions.
+`-d` adds idle display sleep prevention without dropping system sleep prevention.
+Keep the terminal open; **Ctrl-C** stops early and releases both assertions.
+There is no countdown or status command. Multiple invocations are independent.
 
-## Requirements
+## Usage
 
-macOS with `/usr/bin/caffeinate` and `/usr/bin/perl` (including its standard
-modules). Both are supplied by current macOS installations; no Homebrew packages,
-third-party Perl modules, shell plugins, or background service are needed.
-
-## Install
-
-Clone into your preferred directory:
-
-```sh
-git clone https://github.com/angelocordon/doppio.git ~/Development/doppio
-cd ~/Development/doppio
-./dop 30m
-# Or: ./doppio 30m
+```text
+doppio [-d] DURATION
+doppio -h | --help
 ```
 
-To install both command names into a user-owned directory:
+Durations use lowercase whole hours and/or minutes, in that order, without
+spaces: `30m`, `1h`, `1h30m`, or `90m`. `0h30m` and `2h90m` are also valid.
+Each unit may occur once; the total must be positive. Seconds, milliseconds,
+bare numbers, signs, fractions, extra arguments, and `--display` are unsupported.
+The maximum is 2,147,483,647 seconds; the largest whole-minute input is
+`35791394m`.
+
+| Invocation | Command run |
+| --- | --- |
+| `dop 30m` | `/usr/bin/caffeinate -i -t 1800` |
+| `dop -d 1h30m` | `/usr/bin/caffeinate -i -d -t 5400` |
+
+`caffeinate -t` takes **seconds**, not milliseconds. Doppio delegates all timing
+to it and waits in the foreground. Standard streams are inherited. Help and
+normal completion exit 0; invalid arguments exit 2; launch failures exit 1.
+Other child exit codes propagate, with a diagnostic for unexpected failure.
+Ctrl-C exits 130; SIGTERM sent only to doppio is forwarded to its child, which
+is reaped before doppio exits 143.
+
+## Build
+
+Development requires macOS and [Bun](https://bun.com/docs/installation).
+The implementation is verified with Bun **1.3.0**; no package install is needed.
+End users of the compiled executable do **not** need Bun or Node installed.
+The executable still needs macOS's `/usr/bin/caffeinate`, which is selected
+explicitly rather than searching PATH.
+
+```sh
+git clone https://github.com/angelocordon/doppio.git
+cd doppio
+mkdir -p dist
+bun build --compile ./doppio.ts --outfile ./dist/doppio
+./dist/doppio --help
+```
+
+This builds for the current machine's architecture. Bun embeds its runtime:
+the macOS arm64 build with Bun 1.3.0 is approximately **60.4 MB**, not a tiny
+native binary. Build again after changing `doppio.ts`; documentation-only
+changes need no rebuild. Generated binaries are ignored, not checked in.
+No signed release or installer is provided.
+
+For development without compiling:
+
+```sh
+bun run ./doppio.ts -d 30m
+```
+
+## Manual installation
+
+After building, install both names into a user-owned directory:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-install -m 755 doppio "$HOME/.local/bin/doppio"
+install -m 755 ./dist/doppio "$HOME/.local/bin/doppio"
 ln -s doppio "$HOME/.local/bin/dop"
 ```
 
-Run these commands from the cloned repository. The link command deliberately
-does not overwrite an existing `dop`; check any conflict before replacing it.
-If `~/.local/bin` is not already on your PATH, you can use the full paths or
-enable it for the current terminal:
+The symlink command deliberately refuses to overwrite an existing `dop`;
+inspect any conflict before replacing it. Nothing edits shell startup files.
+If needed, enable the directory for this terminal only:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Nothing modifies shell startup files or installs itself automatically. To
-update, pull the repository and repeat the `install` command; the link can stay.
-To uninstall, remove the two installed command paths. Do not remove state files
-while a session is running.
+To update, rebuild and repeat `install`; keep the existing symlink.
+To uninstall, remove the installed `dop` symlink and `doppio` executable.
+There are no state files, locks, services, or background daemons to remove.
 
-## Usage
-
-```text
-dop [-d|--display] DURATION
-dop status
-dop --help
-```
-
-| Command | Effect |
-| --- | --- |
-| `dop 1h` | Prevent idle system sleep for one hour |
-| `dop 90m` | Same, for ninety minutes |
-| `dop 1h30m` | Same duration, with hours and minutes |
-| `dop -d 30m` | Also prevent idle display sleep |
-| `dop --display 30m` | Long form of `-d` |
-| `dop status` | Report the current session's remaining time and mode |
-
-Durations are positive whole hours and/or minutes, in that order, with no spaces.
-`0h30m` and `2h90m` are valid. Bare numbers, seconds, negative values, fractions,
-and zero-length durations are rejected. The maximum is 2,147,483,647 seconds
-(the largest accepted whole-minute duration is `35791394m`).
-
-The countdown is `HH:MM:SS`. In a terminal it updates on one line; when redirected,
-it prints a line each second. There is no detached mode and no command-wrapping
-mode. Keep the terminal session open. Normal completion returns exit code 0,
-errors return 1, Ctrl-C returns 130, SIGTERM returns 143, and SIGHUP returns 129.
-
-### Status and concurrent sessions
-
-While `dop 1h` is running in one terminal, use another:
+## Checks
 
 ```sh
-dop status
-# Doppio: 00:58:42 remaining (system; display may sleep).
+bun test ./doppio.test.ts
+DOPPIO_BINARY=./dist/doppio bun test ./doppio.test.ts
+DOPPIO_BINARY=./dist/doppio DOPPIO_REAL_TESTS=1 bun test ./doppio.test.ts
 ```
 
-Only one doppio session per user is allowed. A second start fails explicitly
-rather than replacing or stopping the first session. Both command names share
-the same state under `~/Library/Application Support/doppio`, in a private `0700`
-directory. A kernel-held file lock identifies an active wrapper; the small JSON
-file records the monotonic countdown deadline and display mode. No PID from
-saved state is ever used to kill a process.
+The first command covers duration/argv generation, subprocess exits and launch
+errors, and the source CLI. The second also exercises the compiled CLI and
+`dop` symlink. The final command is macOS-only: it briefly checks actual power
+assertions, terminal Ctrl-C via macOS `script`, and wrapper-only SIGTERM in both
+modes for source and compiled builds. It also waits for **one real one-minute
+completion**. Real checks stop/reap their own children; they do not signal
+unrelated processes. Test-only temporary files are removed afterward.
 
-Normal completion, Ctrl-C, SIGTERM, and SIGHUP stop and reap the wrapper's own
-`caffeinate` child and remove session state. The empty `session.lock` file stays
-in place to keep locking safe across invocations. If the wrapper crashes or is
-force-killed, `caffeinate -w` releases assertions when its parent exits; `-t`
-also bounds their lifetime. Leftover JSON is ignored without a held lock and
-replaced on the next start. Invalid active state and unsafe state permissions
-produce explicit errors rather than misleading status.
+## Boundaries
 
-Status only describes doppio, not assertions made by other apps. Use
-`pmset -g assertions` to inspect the system's assertions.
+Idle sleep prevention does not bypass lid-close sleep, explicit Sleep, low
+battery, screen locking, or organizational/device policies. It does not promise
+to wake an already sleeping display. Powered clamshell operation remains
+macOS's responsibility.
 
-### Boundaries
-
-Doppio runs `caffeinate -i -t SECONDS -w WRAPPER_PID`; display mode adds `-d`.
-It does **not** use `-s` (AC-only system-sleep prevention), `-u` (declare user
-activity), or `-m` (disk-sleep prevention).
-
-This prevents **idle sleep**, not forced sleep from closing the lid, choosing
-Sleep, low battery, or organizational/device-management policies. It does not
-disable the screen saver, automatic locking, or security policy, and it does not
-promise to wake an already sleeping display. For powered clamshell use with an
-external display, macOS must already support that clamshell configuration;
-doppio does not bypass lid-close behavior.
-
-## Development
-
-Run the focused tests from the repository root:
-
-```sh
-/usr/bin/prove -v t/doppio.t
-```
-
-The tests use isolated temporary HOME directories and a fake caffeinate for
-parsing, countdown, status, concurrency, stale state, errors, and signal cleanup.
-On macOS, short real-caffeinate smoke tests cover both assertion modes and clean
-up their children. No minute-long assertions are left running.
+Doppio does not use `caffeinate -s`, `-u`, `-m`, or `-w`. There is no detached
+mode, command wrapping, session registry, or cross-process coordination.
+SIGKILL, crashes, and terminal disconnection have no custom cleanup guarantee;
+`caffeinate -t` still bounds any surviving assertion's lifetime. Use
+`pmset -g assertions` to inspect system-wide power assertions.
