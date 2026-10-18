@@ -1,5 +1,6 @@
 import type { Action, View } from "./session";
 import { formatRemaining } from "./session";
+import { versionLabel } from "./version";
 
 export function terminalView(): View {
   const input = process.stdin;
@@ -45,7 +46,7 @@ export function terminalView(): View {
       input.on("end", onEnd);
       output.on("resize", onResize);
       input.resume();
-      output.write("  doppio\n  s  toggle display sleep | q  stop | ?  help | Ctrl-C  interrupt\n");
+      output.write(`  ${versionLabel}\n  s  toggle display sleep | q  stop | ?  help | Ctrl-C  interrupt\n`);
     },
     render({ remaining, displayAwake }) {
       const line = `  ${formatRemaining(remaining)}  system awake / display ${displayAwake ? "awake" : "sleep allowed"}`;

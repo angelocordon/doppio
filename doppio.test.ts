@@ -3,7 +3,8 @@ import type { Subprocess } from "bun";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { durationFor } from "./doppio";
+import { durationFor, versionRequested } from "./doppio";
+import pkg from "./package.json" with { type: "json" };
 import {
   assertionCommand, formatRemaining, remainingSeconds, runSession,
   type Action, type Assertion, type Snapshot, type View,
@@ -40,6 +41,14 @@ test("reject invalid input and unsafe or overflowing totals", () => {
 test("help needs no child", () => {
   expect(durationFor(["-h"])).toBeNull();
   expect(durationFor(["--help"])).toBeNull();
+});
+
+test("version flags are recognized only alone", () => {
+  expect(versionRequested(["-v"])).toBe(true);
+  expect(versionRequested(["--version"])).toBe(true);
+  expect(versionRequested(["-v", "1m"])).toBe(false);
+  expect(versionRequested(["1m"])).toBe(false);
+  expect(() => durationFor(["-v", "1m"])).toThrow("invalid duration");
 });
 
 test("assertions are independent, absolute-path, owner-bound and use seconds", () => {
@@ -226,6 +235,11 @@ for (const [name, command] of variants) {
         const result = Bun.spawnSync([...command, flag]);
         expect(result.exitCode).toBe(0);
         expect(result.stdout.toString()).toContain("Ctrl-C");
+      }
+      for (const flag of ["-v", "--version"]) {
+        const result = Bun.spawnSync([...command, flag]);
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout.toString()).toStartWith(`doppio ${pkg.version}`);
       }
       for (const args of [...invalid, ...detached]) {
         const result = Bun.spawnSync([...command, ...args]);

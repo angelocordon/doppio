@@ -58,7 +58,7 @@ no native clock glue or wall-clock substitution is introduced.
 
 ## Command interface
 
-The delivered CLI is `dop DURATION` and `dop -h | --help`. The complete future
+The delivered CLI is `dop DURATION`, `dop -h | --help`, and `dop -v | --version`. The complete future
 session-management interface (not implemented in this iteration) is:
 
 ```text
@@ -68,6 +68,7 @@ dop DURATION --detach
 dop status
 dop stop
 dop -h | --help
+dop -v | --version
 ```
 
 Both command names expose the same behavior. Help must explain the new defaults,
