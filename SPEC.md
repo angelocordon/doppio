@@ -162,8 +162,15 @@ Bun is required to develop, test, and build, not to run the compiled executable.
 Compiled output embeds its runtime and is not assumed tiny. Document measured
 size and build version, and build for each supported Mac architecture.
 
-Direct release downloads and Homebrew are desired distribution channels.
-npm/pnpm distribution is also of interest, but its packaging approach and priority
+Direct release downloads and a Homebrew tap are the delivered distribution
+channels. Pushing a `vX.Y.Z` tag that matches `package.json` builds and tests
+both Mac architectures on their native runners and publishes a GitHub Release
+with per-architecture archives (each containing `doppio`, the `dop` symlink,
+license, and README) plus `SHA256SUMS`. Tags with a suffix, such as
+`vX.Y.Z-rc.1`, publish prereleases. Merging into `main` does not release.
+The `angelocordon/homebrew-tap` formula tracks the latest stable release.
+Release binaries are not Developer ID signed or notarized. npm/pnpm
+distribution remains of interest, but its packaging approach and priority
 are not decided. A package-manager installation channel does not require using
 that package manager's runtime to execute the compiled binary.
 
@@ -201,5 +208,5 @@ after terminal closure, accurate status, and safe stop. Resolve session-selectio
 and lifecycle questions before specifying their detailed acceptance criteria.
 
 Use isolated test state and stop/reap only test-owned processes. Keep tests
-proportional; do not add unrelated CI or packaging infrastructure to deliver
-the terminal experience.
+proportional. CI runs the source and compiled-binary checks (not the real
+assertion checks) on both architectures for every PR, `main` push, and release.

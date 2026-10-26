@@ -100,10 +100,64 @@ detaching through a shortcut are ideas, not committed features.
 a living design: implementation and usage can inform deliberate changes through
 collaboration, rather than being constrained by an earlier draft.
 
-Direct binary downloads and Homebrew are desired installation channels;
-npm/pnpm distribution is also under consideration. These are not available yet.
-The compiled executable will continue to run without a separately installed
-JavaScript runtime; the current build and manual-install steps follow.
+## Install
+
+Doppio is distributed as a standalone macOS executable for Apple Silicon
+(`arm64`) and Intel (`x64`) Macs. Neither Bun nor Node is needed to run it.
+
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install angelocordon/tap/doppio
+```
+
+This installs both `doppio` and `dop`; `brew upgrade` picks up new stable
+releases. `brew uninstall doppio` removes both.
+
+Or download a release directly from
+[GitHub Releases](https://github.com/angelocordon/doppio/releases). For Apple
+Silicon (replace `arm64` with `x64` on an Intel Mac):
+
+```sh
+curl -fLO https://github.com/angelocordon/doppio/releases/latest/download/doppio-darwin-arm64.tar.gz
+curl -fLO https://github.com/angelocordon/doppio/releases/latest/download/SHA256SUMS
+grep doppio-darwin-arm64.tar.gz SHA256SUMS | shasum -a 256 -c
+tar -xzf doppio-darwin-arm64.tar.gz
+mkdir -p "$HOME/.local/bin"
+install -m 755 doppio-darwin-arm64/doppio "$HOME/.local/bin/doppio"
+ln -s doppio "$HOME/.local/bin/dop"
+```
+
+Make sure `$HOME/.local/bin` is on your `PATH` (see
+[Manual installation](#manual-installation)).
+
+Release binaries are not signed with an Apple Developer ID or notarized.
+Homebrew and `curl` downloads run normally; a file downloaded through a web
+browser may be blocked by macOS until you approve it.
+
+## Releasing
+
+Merging into `main` runs the build and tests but does not publish anything.
+To release:
+
+1. In a PR, bump `version` in `package.json` (for example, `0.2.0`) and merge it.
+2. Tag the merged commit on `main` and push the tag:
+
+   ```sh
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+The tag must match `package.json`'s version, or the release fails. The
+[build workflow](.github/workflows/build.yml) then builds and tests both
+architectures and publishes a GitHub Release with `doppio-darwin-arm64.tar.gz`,
+`doppio-darwin-x64.tar.gz`, and `SHA256SUMS`. A tag with a suffix, such as
+`v0.2.0-rc.1` (with `package.json` version `0.2.0-rc.1`), is published as a
+**prerelease**: available to download, but not marked latest and not picked up
+by Homebrew.
+
+The [Homebrew tap](https://github.com/angelocordon/homebrew-tap) updates its
+formula to the latest stable release daily; run its *update* workflow to
+update immediately.
 
 ## Build
 
@@ -131,8 +185,7 @@ changes need no rebuild. Generated binaries are ignored, not checked in.
 The version comes from `package.json`'s `version` field. `bun run build`
 also embeds the current git short commit, so a compiled binary reports e.g.
 `doppio 0.1.0 (a61c636)`; running from source reports `doppio 0.1.0`. Bump
-`version` in `package.json` when cutting a release.
-No signed release or installer is provided.
+`version` in `package.json` when cutting a release (see [Releasing](#releasing)).
 
 For development without compiling:
 
@@ -142,7 +195,7 @@ bun run ./doppio.ts 30m
 
 ## Manual installation
 
-After building, install both names into a user-owned directory:
+After building from source, install both names into a user-owned directory:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
