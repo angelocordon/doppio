@@ -12,6 +12,8 @@ terminal, Doppio shows a live `HH:MM:SS` countdown and single-key controls:
 dop 30m
 dop 1h30m
 dop 1h
+dop 1
+dop 90
 ```
 
 Doppio prevents **idle system and display sleep** by default. Press **s** to
@@ -42,8 +44,14 @@ interactive session header shows the same label.
 
 Durations use lowercase whole hours and/or minutes, in that order, without
 spaces: `30m`, `1h`, `1h30m`, or `90m`. `0h30m` and `2h90m` are also valid.
+Bare numbers infer hours for `1` through `12` and minutes for `13` and above:
+`dop 1` means `1h`, `dop 12` means `12h`, and `dop 90` means `90m`.
+Explicit units always override inference: `dop 12m` means 12 minutes and
+`dop 24h` means 24 hours. Leading zeros do not change the rule.
+The countdown immediately shows the resolved duration.
+
 Each unit may occur once; the total must be positive. Seconds, milliseconds,
-bare numbers, signs, fractions, extra arguments, and `--display` are unsupported.
+signs, fractions, extra arguments, and `--display` are unsupported.
 The maximum is 2,147,483,647 seconds; the largest whole-minute input is
 `35791394m`.
 

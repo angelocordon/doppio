@@ -82,7 +82,13 @@ Retain lowercase whole hours and/or minutes, in that order, without spaces:
 are nonnegative decimal integers and the total must be positive; `0h30m` and
 `2h90m` are valid.
 
-Reject bare numbers, signs, fractions, seconds/milliseconds, reversed or repeated
+Accept bare positive whole numbers: values from 1 through 12 mean hours, and
+values of 13 or greater mean minutes. Leading zeros do not change inference.
+Explicit units always take precedence: `12m` is 12 minutes, not 12 hours.
+Show the resolved duration immediately in the foreground countdown or plain
+start message.
+
+Reject signs, fractions, seconds/milliseconds, reversed or repeated
 units, malformed input, and zero-length durations. Convert to whole seconds
 with safe integer arithmetic and cap the total at 2,147,483,647 seconds.
 `caffeinate -t` takes seconds: `1h30m` is `5400`, not `5400000`.
