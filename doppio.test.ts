@@ -304,8 +304,11 @@ const realTests = process.env.DOPPIO_REAL_TESTS === "1" && process.platform === 
 if (realTests) {
   writeFileSync(join(directory, "caffeinate"), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
   for (const [name, command] of variants) {
-    test(`${name}: plain foreground and wrapper-only SIGTERM`, async () => {
-      const wrapper = Bun.spawn([...command, "1m"], {
+    test.each([
+      ["1m", "00:01:00"], ["1", "01:00:00"], ["12", "12:00:00"],
+      ["13", "00:13:00"], ["90", "01:30:00"], ["12m", "00:12:00"],
+    ])(`${name}: plain foreground %s (%s) and wrapper-only SIGTERM`, async (duration, countdown) => {
+      const wrapper = Bun.spawn([...command, duration], {
         stdin: "ignore", stdout: "pipe", stderr: "pipe",
         env: { ...process.env, PATH: directory }, timeout: 5000,
       });
@@ -321,7 +324,7 @@ if (realTests) {
         expect(await wrapper.exited).toBe(143);
         expect(children.every(pid => !exists(pid))).toBe(true);
         const stdout = await new Response(wrapper.stdout).text();
-        expect(stdout).toContain("00:01:00");
+        expect(stdout).toContain(countdown);
         expect(stdout).not.toContain("\x1b");
         expect(stdout).not.toContain("toggle");
         expect(await new Response(wrapper.stderr).text()).toBe("");
