@@ -20,15 +20,29 @@ test("hours and minutes become exact seconds", () => {
   for (const [duration, seconds] of [
     ["30m", 1800], ["1h", 3600], ["1h30m", 5400], ["90m", 5400],
     ["0h30m", 1800], ["1h0m", 3600], ["2h90m", 12600],
-    ["0001m", 60], ["35791394m", 2147483640], ["596523h14m", 2147483640],
+    ["0001m", 60], ["12m", 720], ["13h", 46800],
+    ["35791394m", 2147483640], ["596523h14m", 2147483640],
+  ] as const) expect(durationFor([duration])).toBe(seconds);
+});
+
+test("bare numbers infer hours through 12 and minutes above 12", () => {
+  for (let hours = 1; hours <= 12; hours++) {
+    expect(durationFor([String(hours)])).toBe(hours * 3600);
+  }
+  for (const [duration, seconds] of [
+    ["13", 780], ["15", 900], ["30", 1800], ["90", 5400],
+    ["0001", 3600], ["0012", 43200], ["0013", 780],
+    ["35791394", 2147483640],
   ] as const) expect(durationFor([duration])).toBe(seconds);
 });
 
 const invalid = [
-  [], ["0m"], ["0h"], ["0h0m"], ["1"], ["1s"], ["1ms"], ["1h1s"],
+  [], ["0m"], ["0h"], ["0h0m"], ["0"], ["0000"], ["1s"], ["1ms"], ["1h1s"],
   ["1.5h"], ["-1m"], ["+1m"], ["30m1h"], ["1h2h"], ["1m2m"], ["1H"],
   ["1m "], [" 1m"], [""], ["1m\n"], ["1m", "2m"], ["-x", "1m"],
   ["--display", "1m"], ["status"], ["stop"], ["--help", "1m"],
+  ["1.5"], ["-1"], ["+1"], [" 1"], ["1 "], ["1\n"], ["1", "2"],
+  ["35791395"], ["9".repeat(400)],
   ["35791395m"], ["596524h"], ["9".repeat(400) + "h"], ["1h;echo nope"],
 ];
 const detached = [["-d"], ["-d", "1m"], ["1m", "-d"], ["1m", "--detach"]];
@@ -235,6 +249,7 @@ for (const [name, command] of variants) {
         const result = Bun.spawnSync([...command, flag]);
         expect(result.exitCode).toBe(0);
         expect(result.stdout.toString()).toContain("Ctrl-C");
+        expect(result.stdout.toString()).toContain("1-12 mean hours; 13+ mean minutes");
       }
       for (const flag of ["-v", "--version"]) {
         const result = Bun.spawnSync([...command, flag]);
@@ -289,8 +304,11 @@ const realTests = process.env.DOPPIO_REAL_TESTS === "1" && process.platform === 
 if (realTests) {
   writeFileSync(join(directory, "caffeinate"), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
   for (const [name, command] of variants) {
-    test(`${name}: plain foreground and wrapper-only SIGTERM`, async () => {
-      const wrapper = Bun.spawn([...command, "1m"], {
+    test.each([
+      ["1m", "00:01:00"], ["1", "01:00:00"], ["12", "12:00:00"],
+      ["13", "00:13:00"], ["90", "01:30:00"], ["12m", "00:12:00"],
+    ])(`${name}: plain foreground %s (%s) and wrapper-only SIGTERM`, async (duration, countdown) => {
+      const wrapper = Bun.spawn([...command, duration], {
         stdin: "ignore", stdout: "pipe", stderr: "pipe",
         env: { ...process.env, PATH: directory }, timeout: 5000,
       });
@@ -306,7 +324,7 @@ if (realTests) {
         expect(await wrapper.exited).toBe(143);
         expect(children.every(pid => !exists(pid))).toBe(true);
         const stdout = await new Response(wrapper.stdout).text();
-        expect(stdout).toContain("00:01:00");
+        expect(stdout).toContain(countdown);
         expect(stdout).not.toContain("\x1b");
         expect(stdout).not.toContain("toggle");
         expect(await new Response(wrapper.stderr).text()).toBe("");
