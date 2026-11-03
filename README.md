@@ -9,6 +9,7 @@ Each invocation runs independently in the foreground. In an interactive
 terminal, Doppio shows a live `HH:MM:SS` countdown and single-key controls:
 
 ```sh
+dop
 dop 30m
 dop 1h30m
 dop 1h
@@ -34,10 +35,12 @@ session state. Multiple invocations remain independent.
 ## Current usage
 
 ```text
-doppio DURATION
+doppio [DURATION]
 doppio -h | --help
 doppio -v | --version
 ```
+
+With no duration, Doppio runs for 12 hours.
 
 `-v` / `--version` prints the version, e.g. `doppio 0.1.0 (a61c636)`. The
 interactive session header shows the same label.

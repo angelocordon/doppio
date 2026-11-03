@@ -58,7 +58,8 @@ no native clock glue or wall-clock substitution is introduced.
 
 ## Command interface
 
-The delivered CLI is `dop DURATION`, `dop -h | --help`, and `dop -v | --version`. The complete future
+The delivered CLI is `dop [DURATION]`, `dop -h | --help`, and
+`dop -v | --version`. Omitting `DURATION` runs for 12 hours. The complete future
 session-management interface (not implemented in this iteration) is:
 
 ```text
@@ -71,9 +72,9 @@ dop -h | --help
 dop -v | --version
 ```
 
-Both command names expose the same behavior. Help must explain the new defaults,
-detach flag, and available commands. Invalid input produces a clear diagnostic
-without starting a session.
+Both command names expose the same behavior. Help must explain the default
+duration, new power-management defaults, detach flag, and available commands.
+Invalid input produces a clear diagnostic without starting a session.
 
 ### Durations
 
