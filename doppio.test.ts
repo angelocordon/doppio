@@ -25,6 +25,10 @@ test("hours and minutes become exact seconds", () => {
   ] as const) expect(durationFor([duration])).toBe(seconds);
 });
 
+test("no duration defaults to 12 hours", () => {
+  expect(durationFor([])).toBe(12 * 60 * 60);
+});
+
 test("bare numbers infer hours through 12 and minutes above 12", () => {
   for (let hours = 1; hours <= 12; hours++) {
     expect(durationFor([String(hours)])).toBe(hours * 3600);
@@ -37,7 +41,7 @@ test("bare numbers infer hours through 12 and minutes above 12", () => {
 });
 
 const invalid = [
-  [], ["0m"], ["0h"], ["0h0m"], ["0"], ["0000"], ["1s"], ["1ms"], ["1h1s"],
+  ["0m"], ["0h"], ["0h0m"], ["0"], ["0000"], ["1s"], ["1ms"], ["1h1s"],
   ["1.5h"], ["-1m"], ["+1m"], ["30m1h"], ["1h2h"], ["1m2m"], ["1H"],
   ["1m "], [" 1m"], [""], ["1m\n"], ["1m", "2m"], ["-x", "1m"],
   ["--display", "1m"], ["status"], ["stop"], ["--help", "1m"],

@@ -2,10 +2,10 @@ import { runSession } from "./session";
 import { terminalView } from "./terminal";
 import { versionLabel } from "./version";
 
-const usage = `Usage: doppio DURATION
+const usage = `Usage: doppio [DURATION]
        doppio -h | --help
        doppio -v | --version
-DURATION: positive whole hours/minutes, e.g. 2h, 45m, 1h30m
+DURATION: positive whole hours/minutes, e.g. 2h, 45m, 1h30m (default: 12h)
 Bare numbers: 1-12 mean hours; 13+ mean minutes. Explicit units override.
 Prevents idle system and display sleep by default.
 In an interactive terminal: s toggles display sleep prevention; q stops.
@@ -19,6 +19,7 @@ export function versionRequested(args: string[]): boolean {
 
 export function durationFor(args: string[]): number | null {
   if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) return null;
+  if (args.length === 0) return 43200;
   if (args.includes("-d") || args.includes("--detach")) {
     throw new Error(`-d/--detach is not supported: system and display sleep prevention are now enabled by default; detachment is not implemented\n${usage}`);
   }
