@@ -142,7 +142,9 @@ ln -s doppio "$HOME/.local/bin/dop"
 Make sure `$HOME/.local/bin` is on your `PATH` (see
 [Manual installation](#manual-installation)).
 
-Release binaries are not signed with an Apple Developer ID or notarized.
+Release binaries are not signed with an Apple Developer ID or notarized. The
+build re-signs them ad hoc after compiling, because newer macOS versions kill a
+binary whose signature is invalid as soon as it starts.
 Homebrew and `curl` downloads run normally; a file downloaded through a web
 browser may be blocked by macOS until you approve it.
 
@@ -173,7 +175,7 @@ update immediately.
 ## Build
 
 Development requires macOS and [Bun](https://bun.com/docs/installation).
-The implementation is verified with Bun **1.3.0**; no package install is needed.
+The implementation is verified with Bun **1.4.2**; no package install is needed.
 End users of the compiled executable do **not** need Bun or Node installed.
 The executable still needs macOS's `/usr/bin/caffeinate`, which is selected
 explicitly rather than searching PATH.
@@ -189,7 +191,7 @@ bun run build
 declares no dependencies, so `bun install` is unnecessary.
 
 This builds for the current machine's architecture. Bun embeds its runtime:
-the macOS arm64 build with Bun 1.3.0 is approximately **60.4 MB**, not a tiny
+the macOS arm64 build with Bun 1.4.2 is approximately **57.7 MB**, not a tiny
 native binary. Build again after changing source files; documentation-only
 changes need no rebuild. Generated binaries are ignored, not checked in.
 

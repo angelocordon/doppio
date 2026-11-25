@@ -3,9 +3,9 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.0",
+  "packageManager": "bun@1.4.2",
   "scripts": {
-    "build": "mkdir -p dist && bun build --compile --define \"DOPPIO_COMMIT=\\\"$(git rev-parse --short HEAD 2>/dev/null)\\\"\" ./doppio.ts --outfile ./dist/doppio",
+    "build": "mkdir -p dist && bun build --compile --define \"DOPPIO_COMMIT=\\\"$(git rev-parse --short HEAD 2>/dev/null)\\\"\" ./doppio.ts --outfile ./dist/doppio && codesign --force --sign - ./dist/doppio",
     "test": "bun test ./doppio.test.ts"
   }
 }
