@@ -29,6 +29,10 @@ jobs:
         run: bun run test
       - name: Build
         run: bun run build
+      # Newer macOS kills binaries with an invalid signature at launch (exit 137),
+      # even though macOS 15 runners still execute them. Fail the build instead.
+      - name: Verify code signature
+        run: codesign --verify --strict --verbose=2 dist/doppio
       - name: Test compiled binary
         run: DOPPIO_BINARY=./dist/doppio bun run test
       - name: Package
